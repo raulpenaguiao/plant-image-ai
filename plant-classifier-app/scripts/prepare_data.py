@@ -73,9 +73,10 @@ def main():
     model.eval()
 
     print("Downloading BrandonFors/Plant-Diseases-PlantVillage-Dataset...")
-    ds = load_dataset("BrandonFors/Plant-Diseases-PlantVillage-Dataset", split="train")
+    # streaming=True avoids loading the full 43K-image dataset into RAM
+    ds = load_dataset("BrandonFors/Plant-Diseases-PlantVillage-Dataset", split="train", streaming=True)
     label_names: list[str] = ds.features["label"].names
-    print(f"Dataset has {len(label_names)} classes and {len(ds)} images.")
+    print(f"Dataset has {len(label_names)} classes.")
 
     for label in SELECTED_LABELS:
         if label not in label_names:
@@ -87,7 +88,6 @@ def main():
     selected_int_set = {label_names.index(n) for n in SELECTED_LABELS}
 
     print(f"Collecting up to {SAMPLES_PER_CLASS} images/class ({SAMPLES_PER_CLASS * len(SELECTED_LABELS)} total)...")
-    ds_filtered = ds.filter(lambda x: x["label"] in selected_int_set)
 
     per_class_count: dict[str, int] = defaultdict(int)
     all_embeddings: list[np.ndarray] = []
@@ -95,7 +95,9 @@ def main():
     faiss_embeddings: list[np.ndarray] = []
     image_paths: list[str] = []
 
-    for item in ds_filtered:
+    for item in ds:
+        if item["label"] not in selected_int_set:
+            continue
         label_name: str = label_names[item["label"]]
         if per_class_count[label_name] >= SAMPLES_PER_CLASS:
             continue
@@ -152,7 +154,7 @@ def main():
         MLPClassifier(max_iter=500, early_stopping=True, random_state=42),
         param_grid,
         cv=3,
-        n_jobs=-1,
+        n_jobs=1,
         verbose=1,
         scoring="accuracy",
     )
