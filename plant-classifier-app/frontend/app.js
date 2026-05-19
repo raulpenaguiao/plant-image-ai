@@ -8,6 +8,28 @@ const results      = document.getElementById("results");
 
 let selectedFile = null;
 
+// ── mobile samples drawer ──────────────────────────────────────────
+const samplesToggle   = document.getElementById("samples-toggle");
+const samplesPanel    = document.getElementById("samples-panel");
+const samplesBackdrop = document.getElementById("samples-backdrop");
+const samplesClose    = document.getElementById("samples-close");
+
+function openSamplesDrawer() {
+  samplesPanel.classList.remove("translate-x-full");
+  samplesPanel.classList.add("translate-x-0");
+  samplesBackdrop.classList.remove("hidden");
+}
+
+function closeSamplesDrawer() {
+  samplesPanel.classList.add("translate-x-full");
+  samplesPanel.classList.remove("translate-x-0");
+  samplesBackdrop.classList.add("hidden");
+}
+
+samplesToggle.addEventListener("click", openSamplesDrawer);
+samplesClose.addEventListener("click", closeSamplesDrawer);
+samplesBackdrop.addEventListener("click", closeSamplesDrawer);
+
 // ── sample sidebar ─────────────────────────────────────────────────
 const sampleList = document.getElementById("sample-list");
 
@@ -22,6 +44,7 @@ const sampleList = document.getElementById("sample-list");
       <img src="${imgUrl}" class="w-full aspect-square object-cover rounded-lg" alt="${filename}" />
     `;
     btn.addEventListener("click", async () => {
+      closeSamplesDrawer();
       const res = await fetch(imgUrl);
       const blob = await res.blob();
       const file = new File([blob], filename, { type: blob.type });

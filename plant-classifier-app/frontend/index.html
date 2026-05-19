@@ -21,11 +21,33 @@
       </p>
     </div>
 
+    <!-- Mobile samples toggle -->
+    <button id="samples-toggle"
+      class="md:hidden fixed bottom-6 right-4 z-50 bg-green-600 hover:bg-green-700 text-white text-sm font-semibold px-4 py-2.5 rounded-full shadow-lg flex items-center gap-2 transition-colors">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h8m-8 6h16"/>
+      </svg>
+      Samples
+    </button>
+
+    <!-- Backdrop (mobile only) -->
+    <div id="samples-backdrop" class="hidden fixed inset-0 bg-black/40 z-40"></div>
+
     <div class="flex gap-6 items-start">
 
     <!-- Sidebar -->
-    <aside class="w-56 flex-shrink-0 bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sticky top-6">
-      <p class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Sample Plants</p>
+    <aside id="samples-panel"
+      class="fixed top-0 right-0 h-full w-64 overflow-y-auto z-50 translate-x-full transition-transform duration-300
+             md:relative md:translate-x-0 md:h-auto md:w-56 md:flex-shrink-0 md:sticky md:top-6 md:overflow-visible md:transition-none md:z-auto
+             bg-white shadow-xl md:shadow-sm rounded-l-2xl md:rounded-2xl border border-gray-100 p-4">
+      <div class="flex items-center justify-between mb-3">
+        <p class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Sample Plants</p>
+        <button id="samples-close" class="md:hidden text-gray-400 hover:text-gray-600">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
       <div id="sample-list" class="space-y-1"></div>
     </aside>
 
