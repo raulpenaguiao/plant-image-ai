@@ -12,9 +12,9 @@ let selectedFile = null;
 const sampleList = document.getElementById("sample-list");
 
 (async () => {
-  const files = await fetch("/pics-list").then((r) => r.json());
+  const files = await fetch("pics-list").then((r) => r.json());
   files.forEach((filename) => {
-    const imgUrl = `/pics/${filename}`;
+    const imgUrl = `pics/${filename}`;
     const btn = document.createElement("button");
     btn.className =
       "w-full flex items-center gap-2 p-2 rounded-xl text-left hover:bg-green-50 transition-colors";
@@ -84,7 +84,7 @@ async function runPredict() {
   form.append("file", selectedFile);
 
   try {
-    const res = await fetch("/predict", { method: "POST", body: form });
+    const res = await fetch("predict", { method: "POST", body: form });
     if (!res.ok) {
       const msg = await res.text();
       throw new Error(msg);
@@ -144,7 +144,7 @@ function displayResults(data) {
     data.retrieved_examples.forEach((path) => {
       grid.insertAdjacentHTML(
         "beforeend",
-        `<img src="/${path}"
+        `<img src="${path}"
               class="w-full aspect-square object-cover rounded-lg shadow-sm"
               onerror="this.parentElement.removeChild(this)"
               alt="similar plant" />`
