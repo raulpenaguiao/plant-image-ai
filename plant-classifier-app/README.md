@@ -271,3 +271,19 @@ Re-running with the same tag name requires deleting it first (`git push origin :
 
 Repository **secrets**: `VPS_HOST`, `VPS_USER` (root, or a user with passwordless sudo), `VPS_SSH_KEY` (private key, **base64-encoded**: `base64 -w0 ~/.ssh/id_ed25519`), `VPS_APP_DIR` (root of the git checkout, the folder containing `plant-classifier-app/`), and optionally `VPS_PORT`, `VPS_APP_USER`, `VPS_KNOWN_HOSTS`.
 Repository **variables** (optional): `VPS_SERVICE` (default `plant-classifier`), `VPS_APP_PORT` (default `8000`), `VPS_PUBLIC_URL` (enables a final public check).
+
+---
+
+## Deploying (CI/CD)
+
+Pushing a tag named `deploy` (or `deploy/<anything>`), or running **Deploy** by hand from the Actions tab, runs `.github/workflows/deploy.yml`:
+
+1. rsyncs the tagged code to `<VPS_APP_DIR>/plant-classifier-app` (keeping `venv/`, `models/`, `static/` on the VPS)
+2. on the VPS (`deploy/deploy/deploy.sh`): creates the venv and installs `requirements.txt` (skipped when unchanged), runs `scripts/prepare_data.py` only if the models are missing (a first deploy, or after an undeploy: this takes a while), then replaces the `plant-classifier` systemd unit, enables it for boot and restarts it
+3. waits until `/pics-list` and `/` answer 200; the old service (or the undeploy page) keeps serving until then, so a failed deploy does not take the site down
+
+```bash
+git tag deploy && git push origin deploy
+```
+
+Uses the same secrets and variables as undeploy, plus the secret `VPS_APP_USER` (required here: the non-root user the app runs as, who owns the checkout). Deploy and Undeploy never run at the same time.

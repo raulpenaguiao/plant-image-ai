@@ -1,0 +1,91 @@
+name: Deploy
+
+# Deploy the app to the VPS: push a tag named `deploy` (or `deploy/<anything>`), or run it by hand
+# from the Actions tab. It deploys exactly the commit the tag points at.
+#   git tag deploy && git push origin deploy
+# To run it again with the same tag name, delete the tag first (git push origin :refs/tags/deploy).
+# Replaces whatever is live, including the "not maintained" page left by the Undeploy workflow.
+on:
+  push:
+    tags:
+      - deploy
+      - 'deploy/**'
+  workflow_dispatch:
+
+concurrency:
+  group: vps-deploy          # shared with Undeploy: never run alongside it
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90      # a first deploy installs torch and trains the models
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure SSH
+        env:
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_PORT: ${{ secrets.VPS_PORT }}
+        run: |
+          set -euo pipefail
+          install -m 700 -d ~/.ssh
+          # VPS_SSH_KEY holds the private key base64-encoded (e.g. `base64 -w0 ~/.ssh/id_ed25519`)
+          printf '%s' "$VPS_SSH_KEY" | tr -d '[:space:]' | base64 -d > ~/.ssh/id_deploy
+          [ -s ~/.ssh/id_deploy ] || { echo "::error::VPS_SSH_KEY is empty or not valid base64"; exit 1; }
+          [ "$(tail -c1 ~/.ssh/id_deploy | wc -l)" -eq 1 ] || echo >> ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          if [ -n "$VPS_KNOWN_HOSTS" ]; then
+            printf '%s\n' "$VPS_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          else
+            echo "::warning::VPS_KNOWN_HOSTS not set; trusting the host key on first contact"
+            ssh-keyscan -p "${VPS_PORT:-22}" "$VPS_HOST" > ~/.ssh/known_hosts
+          fi
+
+      - name: Sync the code and deploy on the VPS
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_PORT: ${{ secrets.VPS_PORT }}
+          APP_DIR: ${{ secrets.VPS_APP_DIR }}
+          APP_USER: ${{ secrets.VPS_APP_USER }}
+          SERVICE: ${{ vars.VPS_SERVICE || 'plant-classifier' }}
+          PORT: ${{ vars.VPS_APP_PORT || '8000' }}
+        run: |
+          set -euo pipefail
+          [ -n "$APP_DIR" ] || { echo "::error::VPS_APP_DIR secret is not set"; exit 1; }
+          SSH="ssh -i $HOME/.ssh/id_deploy -p ${VPS_PORT:-22} -o BatchMode=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=40"
+          REMOTE="$VPS_USER@$VPS_HOST"
+          SUDO=""; [ "$VPS_USER" = "root" ] || SUDO="sudo -n"
+
+          # Code: only what git tracks; models, venv, caches and generated images on the VPS are kept.
+          $SSH "$REMOTE" "$SUDO mkdir -p '$APP_DIR/plant-classifier-app'"
+          rsync -rlt --delete --rsync-path="$SUDO rsync" -e "$SSH" \
+            --exclude='/venv/' --exclude='/.venv/' --exclude='/models/' --exclude='/static/' \
+            --exclude='__pycache__/' \
+            plant-classifier-app/ "$REMOTE:$APP_DIR/plant-classifier-app/"
+
+          # The deploy script runs from a temp copy so it is the version of this tag.
+          STAGE="/tmp/deploy-${GITHUB_RUN_ID}"
+          $SSH "$REMOTE" "rm -rf '$STAGE' && mkdir -p '$STAGE'"
+          scp -P "${VPS_PORT:-22}" -i "$HOME/.ssh/id_deploy" -o BatchMode=yes \
+            plant-classifier-app/deploy/deploy/deploy.sh "$REMOTE:$STAGE/"
+          $SSH "$REMOTE" \
+            "$SUDO env SERVICE='$SERVICE' PORT='$PORT' APP_DIR='$APP_DIR' APP_USER='$APP_USER' bash '$STAGE/deploy.sh'; rc=\$?; rm -rf '$STAGE'; exit \$rc"
+
+      - name: Check the public endpoint
+        env:
+          PUBLIC_URL: ${{ vars.VPS_PUBLIC_URL }}
+        run: |
+          if [ -z "$PUBLIC_URL" ]; then echo "VPS_PUBLIC_URL not set; skipping"; exit 0; fi
+          for i in 1 2 3 4 5 6; do
+            code="$(curl -sS -m 15 -o /dev/null -w '%{http_code}' "$PUBLIC_URL" || true)"
+            if [ "$code" = "200" ]; then echo "Public URL answers 200"; exit 0; fi
+            sleep 5
+          done
+          echo "::error::Public URL answered $code, expected 200"; exit 1
