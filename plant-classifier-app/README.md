@@ -253,3 +253,21 @@ The `/predict` endpoint is limited to **10 requests per minute** per IP via Slow
 ```python
 @limiter.limit("10/minute")
 ```
+
+---
+
+## Retiring the site (undeploy)
+
+Pushing a tag named `undeploy` (or `undeploy/<anything>`) runs `.github/workflows/undeploy.yml`, which on the VPS:
+
+- replaces the `plant-classifier` systemd unit with a tiny stdlib server on `127.0.0.1:8000` that answers every request with the "not maintained anymore" page (HTTP 410). nginx is untouched; the unit is enabled, so it survives reboots
+- deletes `models/`, `static/sample_images/`, the virtualenv and the HuggingFace/torch/pip caches
+
+```bash
+git tag undeploy && git push origin undeploy
+```
+
+Re-running with the same tag name requires deleting it first (`git push origin :refs/tags/undeploy`).
+
+Repository **secrets**: `VPS_HOST`, `VPS_USER` (root, or a user with passwordless sudo), `VPS_SSH_KEY` (private key, **base64-encoded**: `base64 -w0 ~/.ssh/id_ed25519`), `VPS_APP_DIR` (root of the git checkout, the folder containing `plant-classifier-app/`), and optionally `VPS_PORT`, `VPS_APP_USER`, `VPS_KNOWN_HOSTS`.
+Repository **variables** (optional): `VPS_SERVICE` (default `plant-classifier`), `VPS_APP_PORT` (default `8000`), `VPS_PUBLIC_URL` (enables a final public check).
