@@ -287,3 +287,12 @@ git tag deploy && git push origin deploy
 ```
 
 Uses the same secrets and variables as undeploy, plus the secret `VPS_APP_USER` (required here: the non-root user the app runs as, who owns the checkout). Deploy and Undeploy never run at the same time.
+
+### Without sudo (rootless)
+
+Set the repository variable `VPS_ROOTLESS` to `true` and both workflows run without any `sudo`, as the ordinary `VPS_USER` account (`VPS_APP_USER` is then ignored):
+
+- the app (or the undeploy page) runs as a systemd **user** service of that account: unit in `~/.config/systemd/user/`, maintenance page in `~/.local/share/`, caches under `~/.cache`
+- a root user must do these **once**: `loginctl enable-linger <account>` (so the service runs without a login and starts at boot), install `python3-venv` and `rsync`, and keep managing nginx (the workflows do not touch it in this mode)
+- if the app was previously deployed as a root service, a root user must also run `systemctl disable --now plant-classifier` once, otherwise both fight for the port; the script stops with that message
+- the port stays 8000 (any port above 1024 works for a user service)

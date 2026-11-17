@@ -14,21 +14,46 @@ set -euo pipefail
 SERVICE="${SERVICE:-plant-classifier}"
 PORT="${PORT:-8000}"
 APP_DIR="${APP_DIR:?APP_DIR is required}"
-UNIT="/etc/systemd/system/${SERVICE}.service"
 
-[ "$(id -u)" -eq 0 ] || { echo "must run as root" >&2; exit 1; }
 [[ "$SERVICE" =~ ^[A-Za-z0-9_.@-]+$ ]] || { echo "bad SERVICE: $SERVICE" >&2; exit 1; }
 [[ "$PORT" =~ ^[0-9]+$ ]] || { echo "bad PORT: $PORT" >&2; exit 1; }
+# ROOTLESS=true: run as an ordinary account, as a systemd *user* service (no sudo anywhere).
+# Needs once, by root: `loginctl enable-linger <account>` (service runs without a login, starts at boot).
+if [ -n "${ROOTLESS:-}" ] && [ "${ROOTLESS}" != "false" ]; then ROOTLESS=1; else ROOTLESS=""; fi
+if [ -z "$ROOTLESS" ]; then
+  [ "$(id -u)" -eq 0 ] || { echo "must run as root (or set ROOTLESS=true to run without sudo)" >&2; exit 1; }
+  SCTL="systemctl"; JCTL="journalctl"
+  UNIT="/etc/systemd/system/${SERVICE}.service"
+else
+  [ "$(id -u)" -ne 0 ] || { echo "ROOTLESS needs an ordinary account, not root" >&2; exit 1; }
+  export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+  export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=$XDG_RUNTIME_DIR/bus}"
+  if [ "$(loginctl show-user "$(id -un)" -p Linger --value 2>/dev/null || true)" != "yes" ]; then
+    echo "lingering is off for $(id -un). A root user must run once:  loginctl enable-linger $(id -un)" >&2; exit 1
+  fi
+  [ -S "$XDG_RUNTIME_DIR/bus" ] || { echo "the user systemd manager is not running; is lingering active?" >&2; exit 1; }
+  SCTL="systemctl --user"; JCTL="journalctl --user"
+  UNIT="$HOME/.config/systemd/user/${SERVICE}.service"
+  mkdir -p "$HOME/.config/systemd/user"
+  if systemctl is-active --quiet "$SERVICE" 2>/dev/null; then
+    echo "a system-wide '$SERVICE' service is still running (from a root deploy) and holds the port." >&2
+    echo "A root user must stop it once:  systemctl disable --now $SERVICE" >&2; exit 1
+  fi
+fi
 APP_DIR="$(cd "$APP_DIR" && pwd)"
 APP="$APP_DIR/plant-classifier-app"
 [ -f "$APP/requirements.txt" ] || { echo "no code at $APP (did the rsync step run?)" >&2; exit 1; }
 
-APP_USER="${APP_USER:-$(stat -c %U "$APP")}"
-if [ "$APP_USER" = "root" ] || ! id "$APP_USER" >/dev/null 2>&1; then
-  echo "APP_USER must be an existing non-root user (got '$APP_USER'); set the VPS_APP_USER secret" >&2; exit 1
+if [ -n "$ROOTLESS" ]; then
+  run() { "$@"; }                           # already the app user
+else
+  APP_USER="${APP_USER:-$(stat -c %U "$APP")}"
+  if [ "$APP_USER" = "root" ] || ! id "$APP_USER" >/dev/null 2>&1; then
+    echo "APP_USER must be an existing non-root user (got '$APP_USER'); set the VPS_APP_USER secret" >&2; exit 1
+  fi
+  chown -R "$APP_USER": "$APP"
+  run() { runuser -u "$APP_USER" -- "$@"; }   # run as the app user, in the current directory
 fi
-chown -R "$APP_USER": "$APP"
-run() { runuser -u "$APP_USER" -- "$@"; }   # run as the app user, in the current directory
 cd "$APP"
 
 echo "==> Python virtualenv and dependencies"
@@ -53,49 +78,54 @@ else
 fi
 
 echo "==> Switching $SERVICE to the app (replacing $UNIT)"
-rm -rf "/etc/systemd/system/${SERVICE}.service.d"
+rm -rf "${UNIT}.d"
+if [ -z "$ROOTLESS" ]; then USERLINE="User=${APP_USER}"; WANTED=multi-user.target; else USERLINE=""; WANTED=default.target; fi
 cat > "$UNIT" <<UNIT_EOF
 [Unit]
 Description=Plant Classifier
 After=network.target
 
 [Service]
-User=${APP_USER}
+${USERLINE}
 WorkingDirectory=${APP}
 ExecStart=${APP}/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port ${PORT}
 Restart=always
 RestartSec=3
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=${WANTED}
 UNIT_EOF
-systemctl daemon-reload
-systemctl enable "$SERVICE"          # starts at every boot
-systemctl restart "$SERVICE"
+$SCTL daemon-reload
+$SCTL enable "$SERVICE"          # starts at every boot
+$SCTL restart "$SERVICE"
 
 echo "==> Waiting for the app (model load can take a minute)"
 ok=""
 for i in $(seq 1 90); do
   if curl -fsS -o /dev/null "http://127.0.0.1:${PORT}/pics-list" 2>/dev/null; then ok=1; break; fi
-  systemctl is-active --quiet "$SERVICE" || break
+  $SCTL is-active --quiet "$SERVICE" || break
   sleep 2
 done
 if [ -z "$ok" ]; then
   echo "the app did not come up on port ${PORT}:" >&2
-  journalctl -u "$SERVICE" -n 40 --no-pager >&2 || true
+  $JCTL -u "$SERVICE" -n 40 --no-pager >&2 || true
   exit 1
 fi
 code="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${PORT}/")"
 [ "$code" = "200" ] || { echo "GET / returned $code, expected 200" >&2; exit 1; }
-systemctl is-enabled "$SERVICE" | grep -qx enabled
+$SCTL is-enabled "$SERVICE" | grep -qx enabled
 
-rm -rf "/opt/${SERVICE}-maintenance"   # the page undeploy.sh installed, if any
+rm -rf "/opt/${SERVICE}-maintenance" "$HOME/.local/share/${SERVICE}-maintenance"   # the page undeploy.sh installed, if any
 
+if [ -z "$ROOTLESS" ]; then
 echo "==> nginx (reverse proxy)"
 if systemctl cat nginx >/dev/null 2>&1; then
   systemctl enable nginx
   nginx -t && systemctl reload nginx || systemctl restart nginx
 else
   echo "nginx not installed; the app is only on 127.0.0.1:${PORT}"
+fi
+else
+  echo "rootless: nginx is not touched (a root user manages it)"
 fi
 echo "OK: the app is live on 127.0.0.1:${PORT}"

@@ -53,6 +53,7 @@ jobs:
           APP_USER: ${{ secrets.VPS_APP_USER }}
           SERVICE: ${{ vars.VPS_SERVICE || 'plant-classifier' }}
           PORT: ${{ vars.VPS_APP_PORT || '8000' }}
+          ROOTLESS: ${{ vars.VPS_ROOTLESS }}
         run: |
           set -euo pipefail
           SSH_OPTS=(-i ~/.ssh/id_deploy -p "${VPS_PORT:-22}" -o BatchMode=yes)
@@ -63,9 +64,10 @@ jobs:
           scp -P "${VPS_PORT:-22}" -i ~/.ssh/id_deploy -o BatchMode=yes \
             plant-classifier-app/deploy/undeploy/{undeploy.sh,server.py,index.html} "$REMOTE:$STAGE/"
 
-          SUDO=""; [ "$VPS_USER" = "root" ] || SUDO="sudo -n"
+          # VPS_ROOTLESS=true: no sudo anywhere; runs as a systemd user service of VPS_USER (lingering must be on)
+          SUDO=""; [ "$VPS_USER" = "root" ] || [ "$ROOTLESS" = "true" ] || SUDO="sudo -n"
           ssh "${SSH_OPTS[@]}" "$REMOTE" \
-            "$SUDO env SERVICE='$SERVICE' PORT='$PORT' APP_DIR='${APP_DIR}' APP_USER='${APP_USER}' bash '$STAGE/undeploy.sh'; rc=\$?; rm -rf '$STAGE'; exit \$rc"
+            "$SUDO env SERVICE='$SERVICE' PORT='$PORT' ROOTLESS='$ROOTLESS' APP_DIR='${APP_DIR}' APP_USER='${APP_USER}' bash '$STAGE/undeploy.sh'; rc=\$?; rm -rf '$STAGE'; exit \$rc"
 
       - name: Check the public endpoint
         env:

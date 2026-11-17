@@ -56,12 +56,14 @@ jobs:
           APP_USER: ${{ secrets.VPS_APP_USER }}
           SERVICE: ${{ vars.VPS_SERVICE || 'plant-classifier' }}
           PORT: ${{ vars.VPS_APP_PORT || '8000' }}
+          ROOTLESS: ${{ vars.VPS_ROOTLESS }}
         run: |
           set -euo pipefail
           [ -n "$APP_DIR" ] || { echo "::error::VPS_APP_DIR secret is not set"; exit 1; }
           SSH="ssh -i $HOME/.ssh/id_deploy -p ${VPS_PORT:-22} -o BatchMode=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=40"
           REMOTE="$VPS_USER@$VPS_HOST"
-          SUDO=""; [ "$VPS_USER" = "root" ] || SUDO="sudo -n"
+          # VPS_ROOTLESS=true: no sudo anywhere; runs as a systemd user service of VPS_USER (lingering must be on)
+          SUDO=""; [ "$VPS_USER" = "root" ] || [ "$ROOTLESS" = "true" ] || SUDO="sudo -n"
 
           # Code: only what git tracks; models, venv, caches and generated images on the VPS are kept.
           $SSH "$REMOTE" "$SUDO mkdir -p '$APP_DIR/plant-classifier-app'"
@@ -76,7 +78,7 @@ jobs:
           scp -P "${VPS_PORT:-22}" -i "$HOME/.ssh/id_deploy" -o BatchMode=yes \
             plant-classifier-app/deploy/deploy/deploy.sh "$REMOTE:$STAGE/"
           $SSH "$REMOTE" \
-            "$SUDO env SERVICE='$SERVICE' PORT='$PORT' APP_DIR='$APP_DIR' APP_USER='$APP_USER' bash '$STAGE/deploy.sh'; rc=\$?; rm -rf '$STAGE'; exit \$rc"
+            "$SUDO env SERVICE='$SERVICE' PORT='$PORT' ROOTLESS='$ROOTLESS' APP_DIR='$APP_DIR' APP_USER='$APP_USER' bash '$STAGE/deploy.sh'; rc=\$?; rm -rf '$STAGE'; exit \$rc"
 
       - name: Check the public endpoint
         env:
