@@ -4,7 +4,7 @@
 #
 # Env (all optional):
 #   SERVICE   systemd unit to replace          (default: plant-classifier)
-#   APP_DIR   deployed app checkout            (default: unset -> data cleanup limited to caches)
+#   APP_DIR   git checkout root (or the app dir itself)  (default: unset -> only caches are cleaned)
 #   APP_USER  user whose caches are deleted    (default: owner of APP_DIR, else none)
 #   PORT      port nginx proxies to            (default: 8000)
 set -euo pipefail
@@ -67,6 +67,8 @@ safe_rm() {
 
 if [ -n "$APP_DIR" ] && [ -d "$APP_DIR" ]; then
   APP_DIR="$(cd "$APP_DIR" && pwd)"
+  # APP_DIR is the git checkout root; the app itself lives in its plant-classifier-app/ subfolder
+  if [ -d "$APP_DIR/plant-classifier-app" ]; then APP_DIR="$APP_DIR/plant-classifier-app"; fi
   [ -n "$APP_USER" ] || APP_USER="$(stat -c %U "$APP_DIR")"
   safe_rm "$APP_DIR/models"                 # CLIP/MLP/FAISS artefacts (.pkl, .index, .json)
   safe_rm "$APP_DIR/static/sample_images"   # gallery images from prepare_data.py

@@ -269,5 +269,5 @@ git tag undeploy && git push origin undeploy
 
 Re-running with the same tag name requires deleting it first (`git push origin :refs/tags/undeploy`).
 
-Repository **secrets**: `VPS_HOST`, `VPS_USER` (root, or a user with passwordless sudo), `VPS_SSH_KEY`, `VPS_APP_DIR` (path of the deployed checkout), and optionally `VPS_PORT`, `VPS_APP_USER`, `VPS_KNOWN_HOSTS`.
+Repository **secrets**: `VPS_HOST`, `VPS_USER` (root, or a user with passwordless sudo), `VPS_SSH_KEY` (private key, **base64-encoded**: `base64 -w0 ~/.ssh/id_ed25519`), `VPS_APP_DIR` (root of the git checkout, the folder containing `plant-classifier-app/`), and optionally `VPS_PORT`, `VPS_APP_USER`, `VPS_KNOWN_HOSTS`.
 Repository **variables** (optional): `VPS_SERVICE` (default `plant-classifier`), `VPS_APP_PORT` (default `8000`), `VPS_PUBLIC_URL` (enables a final public check).
